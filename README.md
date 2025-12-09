@@ -45,3 +45,53 @@
 
 支持与限制
 - 本实现为轻量级纯 PHP 客户端，适合内部使用与手动验证流程。若需自动使用 DNS API、扩展更多自动化，请考虑给出 DNS API 凭证并允许安装 acme.sh / certbot 的更完整解决方案。
+
+English
+
+# PHP ACME Client Single File Latest Update Version Old Versions Have Been Deleted
+Description (Chinese)
+
+Feature Overview
+- Apply for certificates from CA via Let’s Encrypt ACME v2 API.
+- Supports HTTP-01 and DNS-01 (manual): Displays the required files / TXT content to be added, and after the administrator manually adds them to the target domain, clicks "Start Verification".
+- After verification, generates domain private key and CSR, completes issuance to ACME, and saves the certificate (certs/<domain>/).
+- Internal management interface, password protected (default password: 12345678).
+- Saves operation history and logs (data/orders.json, logs/actions.log).
+- Provide renewal entry at renew.php. This interface can be accessed via external scheduled tasks to implement "automatic renewal".
+- Default to using the Let's Encrypt official certificate.
+
+Deployment Steps
+1. Check the PHP environment
+- Recommended PHP >= 7.2.
+   - Required extensions: openssl, curl, json
+   - Ensure the PHP process has permission to create the following directories under the site directory: data/, certs/, logs/
+2. Upload files
+- Deploy all PHP files in this repository to your site's root directory (the root corresponding to your domain).
+3. Create initial directories (if not automatically created)
+   - data/ (for persistent accounts, orders)
+   - certs/ (for certificate storage)
+- logs/ (Operation logs)
+   - Permissions for these directories need to be writable by PHP (e.g., 755/775 depending on the host).
+4. Modify configuration (optional)
+   - Edit config.php and set `ACME_DIRECTORY` to staging or production (change production to https://acme-v02.api.letsencrypt.org/directory).
+- Modify `AUTH_PASSWORD` (default 12345678) to enhance security.
+5. Access and Usage
+   - Open a browser to access the site's root directory, which will redirect to the login page. Enter the password to access the Dashboard.
+   - New certificate application: Fill in the email, primary domain (and optional SAN list), and select the verification method HTTP or DNS.
+- The page will display the specific "content to be added to the target domain." The target domain is responsible for configuring this content on its server/DNS and making it accessible/queryable by the CA.
+   - After adding, click "I'm done, start verification." The system will report the challenge to ACME and poll the verification status. Once verification is successful, it will complete the issuance and save the certificate.
+6. Automatic Renewal (Recommended)
+   - Due to the lack of shell permissions, you can configure a scheduled task (or in your hosting panel) to periodically access `https://your-site/renew.php` (with a login session or token) (refer to the README for instructions) to trigger automatic renewal.
+- I have also implemented access trigger logic in the Dashboard: it checks and attempts to renew certificates nearing expiration with each login.
+
+Security Notes
+- Private keys and certificates are highly sensitive. Ensure the `certs` directory is not publicly browsable or directly accessible (recommended to set access restrictions on the web server or place it outside the site root).
+- It is strongly recommended to change the default login password `AUTH_PASSWORD`.
+- Before switching `ACME_DIRECTORY` to production in a production environment, ensure that logic and key management are properly handled.
+
+Debugging and Logging
+- Log file: logs/actions.log
+- Operation history: data/orders.json
+
+Support and Limitations
+- This implementation is a lightweight pure PHP client, suitable for internal use and manual verification processes. If you need to automatically use the DNS API and extend more automation, consider providing DNS API credentials and allowing the installation of the more complete solutions acme.sh / certbot.
