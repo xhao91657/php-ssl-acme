@@ -394,6 +394,36 @@ function orders_load_all() {
     $path = orders_store_path($config);
     return json_load($path);
 }
+function orders_delete_entry($id) {
+    global $config;
+    $path = orders_store_path($config);
+    $all = json_load($path);
+    if (isset($all[$id])) {
+        unset($all[$id]);
+        json_save($path, $all);
+        return true;
+    }
+    return false;
+}
+
+// --------------------- 取消订单 / 删除文件工具 ---------------------
+function acme_cancel_order($order_url, $account, $dir) {
+    // According to ACME RFC, posting {"status":"cancelled"} to order URL should cancel it.
+    $payload = ['status'=>'cancelled'];
+    $res = acme_signed_post($order_url, $payload, $account, $dir);
+    return $res;
+}
+
+function rrmdir($dir) {
+    if (!is_dir($dir)) return;
+    $objects = scandir($dir);
+    foreach ($objects as $object) {
+        if ($object == "." || $object == "..") continue;
+        $path = $dir . DIRECTORY_SEPARATOR . $object;
+        if (is_dir($path)) rrmdir($path); else @unlink($path);
+    }
+    @rmdir($dir);
+}
 
 // --------------------- 辅助：解析证书链，导出 PKCS#12 ---------------------
 function split_pem_chain($pem_chain) {
@@ -423,31 +453,44 @@ function build_pkcs12($cert_pem_chain, $privkey_pem, $password = '') {
     return $out;
 }
 
-// --------------------- 简单 HTML 模板 ---------------------
+// --------------------- 简单 HTML 模板（含移动端适配） ---------------------
 function render_header($title = "ACME 管理") {
     ?>
     <!doctype html>
     <html>
     <head>
         <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1">
         <title><?php echo htmlspecialchars($title); ?></title>
         <style>
             body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial; background:#f7fafc; color:#111827; margin:0; padding:0; }
             .wrap { max-width:1100px; margin:24px auto; background:#fff; border:1px solid #e5e7eb; border-radius:8px; box-shadow:0 6px 18px rgba(15,23,42,0.06); padding:20px; }
-            header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+            header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; flex-wrap:wrap; gap:8px; }
             h1 { margin:0; font-size:20px; }
-            nav a { margin-right:12px; color:#0369a1; text-decoration:none; }
+            nav { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+            nav a { margin-right:0; color:#0369a1; text-decoration:none; }
             nav a.button { background:#0369a1; color:#fff; padding:6px 10px; border-radius:6px; text-decoration:none; }
             table { width:100%; border-collapse:collapse; margin-top:12px; }
             th, td { padding:8px 10px; border-bottom:1px solid #eef2f7; text-align:left; font-size:14px; }
             th { background:#f1f5f9; color:#0f172a; }
             .muted { color:#6b7280; font-size:13px; }
             .notice { background:#fffbeb; border:1px solid #fef3c7; padding:8px; border-radius:6px; margin:12px 0; }
-            form input[type="text"], form input[type="email"], form select, form input[type="password"] { padding:6px 8px; border:1px solid #e2e8f0; border-radius:6px; width:320px; }
-            button, input[type="submit"] { background:#0369a1; color:#fff; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; }
+            form input[type="text"], form input[type="email"], form select, form input[type="password"] { padding:6px 8px; border:1px solid #e2e8f0; border-radius:6px; width:320px; max-width:100%; box-sizing:border-box; }
+            button, input[type="submit"], a.btn { background:#0369a1; color:#fff; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; text-decoration:none; display:inline-block; }
             pre { background:#0f172a; color:#e6edf3; padding:12px; border-radius:6px; overflow:auto; }
             .small { font-size:13px; color:#374151; }
             .row { margin-top:10px; }
+            .actions { display:flex; gap:8px; flex-wrap:wrap; }
+            .danger { background:#dc2626; }
+            /* Responsive: mobile-friendly */
+            @media (max-width: 700px) {
+                .wrap { margin:12px; padding:12px; }
+                header { flex-direction:column; align-items:flex-start; }
+                nav { width:100%; }
+                table { display:block; overflow:auto; white-space:nowrap; }
+                th, td { font-size:13px; padding:8px; }
+                .actions a, .actions button { width:100%; box-sizing:border-box; text-align:center; }
+            }
         </style>
     </head>
     <body>
@@ -561,8 +604,18 @@ if ($action === 'dashboard') {
                 <td><?php echo htmlspecialchars($status); ?></td>
                 <td><?php echo htmlspecialchars($expiry); ?></td>
                 <td>
-                    <a href="?page=view_order&id=<?php echo urlencode($id); ?>">查看</a> |
-                    <a href="?page=renew&id=<?php echo urlencode($id); ?>">续期</a>
+                    <div class="actions">
+                        <a href="?page=view_order&id=<?php echo urlencode($id); ?>" class="btn">查看</a>
+                        <a href="?page=renew&id=<?php echo urlencode($id); ?>" class="btn">续期</a>
+                        <?php
+                            $st = strtolower($status);
+                            // show cancel when not valid/cancelled/invalid
+                            if (!in_array($st, ['valid','cancelled','invalid'])):
+                        ?>
+                            <a href="?page=cancel&id=<?php echo urlencode($id); ?>" class="btn">取消</a>
+                        <?php endif; ?>
+                        <a href="?page=delete&id=<?php echo urlencode($id); ?>" class="btn danger">删除</a>
+                    </div>
                 </td>
             </tr>
             <?php endforeach; ?>
@@ -963,6 +1016,18 @@ if ($action === 'view_order') {
         <p>当前订单没有本地保存的挑战信息。</p>
     <?php endif; ?>
 
+    <h4>操作</h4>
+    <div class="actions">
+        <a href="?page=renew&id=<?php echo urlencode($id); ?>" class="btn">续期</a>
+        <?php
+            $st = strtolower($order['status'] ?? $order['acme_order']['status'] ?? '');
+            if (!in_array($st, ['valid','cancelled','invalid'])):
+        ?>
+            <a href="?page=cancel&id=<?php echo urlencode($id); ?>" class="btn">取消订单</a>
+        <?php endif; ?>
+        <a href="?page=delete&id=<?php echo urlencode($id); ?>" class="btn danger">删除订单及文件</a>
+    </div>
+
     <h4>完整订单 JSON（调试）</h4>
     <pre><?php echo htmlspecialchars(json_encode($order, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)); ?></pre>
 
@@ -970,6 +1035,126 @@ if ($action === 'view_order') {
     <?php
     render_footer();
     exit;
+}
+
+// Cancel confirm (GET) and perform cancel (POST)
+if ($action === 'cancel') {
+    $id = $_GET['id'] ?? '';
+    if (!$id) { header('Location:?page=dashboard'); exit; }
+    $orders = orders_load_all();
+    if (empty($orders[$id])) { header('Location:?page=dashboard'); exit; }
+    $order = $orders[$id];
+    // show confirmation page
+    render_header('取消订单确认');
+    ?>
+    <h3>确认取消订单</h3>
+    <p>你即将取消订单 <strong><?php echo htmlspecialchars($id); ?></strong>（域：<?php echo htmlspecialchars(implode(',', array_map(function($it){ return $it['value']; }, $order['identifiers']))); ?>）。</p>
+    <p class="notice">取消后，ACME 服务器上的该订单将会被标记为 cancelled，本地订单状态也会更新为 cancelled。已签发的证书文件不会被自动删除。</p>
+    <form method="post" action="?page=do_cancel">
+        <input type="hidden" name="id" value="<?php echo htmlspecialchars($id); ?>" />
+        <div class="row">
+            <button type="submit">确认取消</button>
+            &nbsp;<a href="?page=view_order&id=<?php echo urlencode($id); ?>" class="btn">返回</a>
+        </div>
+    </form>
+    <?php
+    render_footer();
+    exit;
+}
+
+if ($action === 'do_cancel') {
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') { header('Location:?page=dashboard'); exit; }
+    $id = $_POST['id'] ?? '';
+    if (!$id) die("缺少 id");
+    $orders = orders_load_all();
+    if (empty($orders[$id])) die("订单未找到");
+    $order = $orders[$id];
+    $order_url = $order['acme_order']['_order_url'] ?? ($order['acme_order']['url'] ?? null);
+    $email = $order['email'];
+    $acct = account_get($email);
+    $dir = get_acme_directory($config);
+
+    if (!$order_url) {
+        // cannot call ACME; just mark cancelled locally
+        $order['status'] = 'cancelled';
+        orders_save_entry($id, $order);
+        log_action("Locally marked order {$id} as cancelled (no order_url)");
+        header('Location:?page=view_order&id=' . urlencode($id));
+        exit;
+    }
+
+    try {
+        $res = acme_cancel_order($order_url, $acct, $dir);
+        // Regardless of server response, mark locally
+        $order['status'] = 'cancelled';
+        orders_save_entry($id, $order);
+        log_action("Cancelled order {$id} via ACME; response HTTP {$res['code']}");
+        header('Location:?page=view_order&id=' . urlencode($id));
+        exit;
+    } catch (Throwable $e) {
+        log_action("Failed to cancel order {$id}: " . $e->getMessage());
+        render_header('取消失败');
+        echo "<div class='notice'>取消订单时发生错误: " . htmlspecialchars($e->getMessage()) . "</div>";
+        echo "<p><a href='?page=view_order&id=" . urlencode($id) . "'>返回订单</a></p>";
+        render_footer();
+        exit;
+    }
+}
+
+// Delete confirm (GET) and perform delete (POST)
+if ($action === 'delete') {
+    $id = $_GET['id'] ?? '';
+    if (!$id) { header('Location:?page=dashboard'); exit; }
+    $orders = orders_load_all();
+    if (empty($orders[$id])) { header('Location:?page=dashboard'); exit; }
+    $order = $orders[$id];
+    render_header('删除订单确认');
+    ?>
+    <h3>确认删除订单</h3>
+    <p>你即将从本地删除订单 <strong><?php echo htmlspecialchars($id); ?></strong>（域：<?php echo htmlspecialchars(implode(',', array_map(function($it){ return $it['value']; }, $order['identifiers']))); ?>）。</p>
+    <p class="notice">删除操作会移除本地订单记录。若你确认，也可以选择同时删除存放在 certs 目录下对应的证书文件（包含私钥）。此操作不可恢复。</p>
+    <form method="post" action="?page=do_delete">
+        <input type="hidden" name="id" value="<?php echo htmlspecialchars($id); ?>" />
+        <div class="row"><label><input type="checkbox" name="remove_files" value="1" /> 同时删除本地证书文件（如果存在）</label></div>
+        <div class="row">
+            <button type="submit" class="danger">确认删除</button>
+            &nbsp;<a href="?page=view_order&id=<?php echo urlencode($id); ?>" class="btn">返回</a>
+        </div>
+    </form>
+    <?php
+    render_footer();
+    exit;
+}
+
+if ($action === 'do_delete') {
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') { header('Location:?page=dashboard'); exit; }
+    $id = $_POST['id'] ?? '';
+    $remove_files = !empty($_POST['remove_files']) && $_POST['remove_files'] == '1';
+    if (!$id) die("缺少 id");
+    $orders = orders_load_all();
+    if (empty($orders[$id])) die("订单未找到");
+    $order = $orders[$id];
+    // attempt to delete files if requested
+    if ($remove_files) {
+        $domains = array_map(function($it){ return $it['value']; }, $order['identifiers']);
+        $dom = $domains[0] ?? null;
+        if ($dom) {
+            $cert_dir = $config->certs_dir . '/' . preg_replace('/^\*\./','wildcard_',$dom);
+            if (is_dir($cert_dir)) {
+                rrmdir($cert_dir);
+                log_action("Removed cert files for order {$id} at {$cert_dir}");
+            } else {
+                log_action("No cert dir to remove for order {$id} at {$cert_dir}");
+            }
+        }
+    }
+    // remove order entry
+    if (orders_delete_entry($id)) {
+        log_action("Deleted order {$id} from local store (remove_files=" . ($remove_files ? 'yes':'no') . ")");
+        header('Location:?page=dashboard'); exit;
+    } else {
+        die("删除失败");
+    }
 }
 
 // Download handler (POST) - 根据用户选择导出不同格式
