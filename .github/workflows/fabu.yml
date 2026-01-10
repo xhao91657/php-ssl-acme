@@ -1,3 +1,4 @@
+# Publish top-level files in repository root as release assets (one asset per file)
 on:
   workflow_dispatch:
   push:
@@ -8,63 +9,53 @@ permissions:
   contents: write
 
 jobs:
-  publish-assets:
+  publish-root-files:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Ensure release-files exists
+      - name: List root files
         run: |
-          if [ ! -d "release-files" ]; then
-            echo "Directory release-files/ not found. Put files to upload in release-files/ and retry."
-            exit 1
-          fi
-          echo "Files to publish:"
-          find release-files -type f -maxdepth 5 -print || true
+          echo "Root files (top-level):"
+          ls -la .
 
-      - name: Create release and upload each file as an asset
+      - name: Create release and upload root files as assets
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
             const path = require('path');
+            const core = require('@actions/core');
+            const { owner, repo } = context.repo;
+            const workspace = process.env.GITHUB_WORKSPACE || '.';
 
-            // determine tag name: if triggered by pushing a tag use that tag, otherwise manual-<run_number>
+            // Determine tag name: use pushed tag if present, otherwise manual-<run_number>
             const ref = context.ref || '';
             const tagName = ref.startsWith('refs/tags/') ? ref.replace('refs/tags/', '') : `manual-${process.env.GITHUB_RUN_NUMBER}`;
             const releaseName = `Release ${tagName}`;
-            const dir = 'release-files';
-            const { owner, repo } = context.repo;
 
-            if (!fs.existsSync(dir)) {
-              core.setFailed(`Directory ${dir} does not exist`);
-              return;
-            }
+            core.info(`Using tag: ${tagName}`);
+            core.info(`Workspace: ${workspace}`);
 
-            // recursively collect files
-            function collectFiles(dirPath) {
-              let results = [];
-              const items = fs.readdirSync(dirPath);
-              for (const item of items) {
-                const full = path.join(dirPath, item);
-                const stat = fs.statSync(full);
-                if (stat.isFile()) results.push(full);
-                else if (stat.isDirectory()) results = results.concat(collectFiles(full));
+            // Read top-level entries and keep only files (do NOT recurse)
+            const entries = fs.readdirSync(workspace);
+            const files = entries.filter(name => {
+              const full = path.join(workspace, name);
+              try {
+                return fs.statSync(full).isFile();
+              } catch (e) {
+                return false;
               }
-              return results;
-            }
+            });
 
-            const files = collectFiles(dir);
             if (files.length === 0) {
-              core.info('No files found in release-files/ to upload.');
+              core.info('No top-level files found to upload. Place files at the repository root and re-run.');
               return;
             }
 
-            core.info(`Using tag: ${tagName}. Creating or getting release...`);
-
-            // create or get release (createRelease will fail if tag exists but release exists; so attempt get first)
+            // create or get release for tagName
             let release;
             try {
               const existing = await github.rest.repos.getReleaseByTag({ owner, repo, tag: tagName });
@@ -77,7 +68,7 @@ jobs:
                 repo,
                 tag_name: tagName,
                 name: releaseName,
-                body: `Release created by workflow for files in ${dir}`,
+                body: `Release created by workflow for top-level files`,
                 draft: false,
                 prerelease: false
               });
@@ -85,23 +76,23 @@ jobs:
               core.info(`Created release id=${release.id}`);
             }
 
-            // upload each file as a separate asset
-            for (const filePath of files) {
-              const data = fs.readFileSync(filePath);
-              const fileName = path.relative(dir, filePath).replace(/\\/g, '/'); // preserve relative path in name if desired
-              core.info(`Uploading ${fileName} (${data.length} bytes) ...`);
+            // Upload each top-level file as an individual asset
+            for (const name of files) {
+              const full = path.join(workspace, name);
+              const data = fs.readFileSync(full);
+              core.info(`Uploading ${name} (${data.length} bytes) ...`);
               await github.rest.repos.uploadReleaseAsset({
                 owner,
                 repo,
                 release_id: release.id,
-                name: fileName,
+                name: name,
                 data,
                 headers: {
                   'content-type': 'application/octet-stream',
                   'content-length': data.length
                 }
               });
-              core.info(`Uploaded ${fileName}`);
+              core.info(`Uploaded ${name}`);
             }
 
-            core.info('All files uploaded. Check the Releases page and the "Assets" list for this release.');
+            core.info('All top-level files uploaded. Check the Releases page and the Assets list.');
