@@ -1,0 +1,43 @@
+# 在仓库根目录创建：.github/workflows/release-apk.yml
+on:
+  workflow_dispatch:    # 手动触发，也可以改为 push tag 触发
+  push:
+    tags:
+      - 'v*.*.*'        # 当推送 v1.2.3 这样的 tag 时触发
+
+permissions:
+  contents: write       # 需要写 release/contents 权限
+
+jobs:
+  upload-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 如果 APK 已经在仓库中（不推荐），直接引用仓库路径。
+      # 更常见场景是 APK 放在 runner 上的某个路径（例如你在构建 job 里生成）。
+      - name: Ensure APK exists
+        run: |
+          ls -la build/outputs/apk/release/app-release.apk
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name != '' && github.ref_name || 'manual-' + github.run_id }}
+          release_name: Release ${{ github.ref_name != '' && github.ref_name || github.run_id }}
+          draft: false
+          prerelease: false
+
+      - name: Upload APK to Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: build/outputs/apk/release/app-release.apk
+          asset_name: app-release.apk
+          asset_content_type: application/vnd.android.package-archive
