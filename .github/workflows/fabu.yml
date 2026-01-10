@@ -27,7 +27,7 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const core = require('@actions/core');
+            // 注意：不要在这里重新 require('@actions/core')，github-script 已经注入了 core
             const { owner, repo } = context.repo;
             const workspace = process.env.GITHUB_WORKSPACE || '.';
 
