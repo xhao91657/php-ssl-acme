@@ -1,5 +1,3 @@
-# 一个 Release，上传 release-files/ 目录下的所有文件作为独立 asset
-# 触发：手动 dispatch 或 push tag（v*）
 on:
   workflow_dispatch:
   push:
@@ -22,12 +20,10 @@ jobs:
           ls -la release-files || true
 
       - name: Create release and upload assets
-        # ncipollo/release-action 会创建 release（若已存在则复用）并把列出的文件作为 assets 上传
         uses: ncipollo/release-action@v1
         with:
-          tag: ${{ github.ref_name || 'manual-' + github.run_number }}
-          name: Release ${{ github.ref_name || github.run_number }}
-          # 修改为你的目录或文件 glob，例如 release-files/* 会上传该目录第一层文件
+          tag: ${{ github.ref_name != '' && github.ref_name || format('manual-{0}', github.run_number) }}
+          name: Release ${{ github.ref_name != '' && github.ref_name || format('manual-{0}', github.run_number) }}
           files: |
             release-files/*
 
