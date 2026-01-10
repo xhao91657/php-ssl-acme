@@ -1,0 +1,35 @@
+# 一个 Release，上传 release-files/ 目录下的所有文件作为独立 asset
+# 触发：手动 dispatch 或 push tag（v*）
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  publish-assets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: List files to publish
+        run: |
+          echo "Files in release-files/:"
+          ls -la release-files || true
+
+      - name: Create release and upload assets
+        # ncipollo/release-action 会创建 release（若已存在则复用）并把列出的文件作为 assets 上传
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ github.ref_name || 'manual-' + github.run_number }}
+          name: Release ${{ github.ref_name || github.run_number }}
+          # 修改为你的目录或文件 glob，例如 release-files/* 会上传该目录第一层文件
+          files: |
+            release-files/*
+
+      - name: Done
+        run: echo "Release created (with assets). Source zip still shown by GitHub by default."
