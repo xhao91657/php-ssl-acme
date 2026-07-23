@@ -121,20 +121,20 @@ acme-panel/
 
 ```bash
 # 使用 wget 下载
-wget https://your-domain.com/path/to/index.php
+wget 
 
 # 或使用 curl
-curl -o index.php https://your-domain.com/path/to/index.php
+curl
 ```
 
 #### 方法二：克隆仓库
 
 ```bash
 # 克隆整个仓库
-git clone https://github.com/your-username/acme-panel.git
+git clone https://github.com/xhao91657/php-ssl-acme
 
 # 进入目录
-cd acme-panel
+cd php-ssl-acme
 
 # 复制主文件到网站根目录
 cp index.php /www/wwwroot/your-site/
